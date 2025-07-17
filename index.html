@@ -229,7 +229,8 @@
         const ERC20_ABI = [
             "function approve(address spender, uint256 amount) returns (bool)",
             "function balanceOf(address account) view returns (uint256)",
-            "function decimals() view returns (uint8)"
+            "function decimals() view returns (uint8)",
+            "function allowance(address owner, address spender) view returns (uint256)" // Added allowance function
         ];
 
         let provider;
@@ -264,20 +265,24 @@
         }
 
         async function updateUI() {
-            if (!provider || !userAddress || !lotteryContract) return;
+            if (!provider || !userAddress || !lotteryContract) {
+                // If not fully connected, ensure buttons are disabled and return
+                enterLotteryBtn.disabled = true;
+                approveBtn.disabled = true;
+                pickWinnerBtn.disabled = true;
+                return;
+            }
 
             try {
                 // Get Lottery Details
                 const currentLotteryId = await lotteryContract.lotteryId();
                 const currentTicketPriceWei = await lotteryContract.ticketPrice();
-                // Corrected: Use getContractCHDPUBalance instead of prizePool
                 const currentPrizePoolWei = await lotteryContract.getContractCHDPUBalance(); 
                 const players = await lotteryContract.getPlayers();
                 const winnerAddress = await lotteryContract.currentWinner();
 
                 lotteryIdSpan.textContent = currentLotteryId.toString();
                 ticketPriceSpan.textContent = ethers.utils.formatUnits(currentTicketPriceWei, chdpuDecimals);
-                // Corrected: Display the contract's CHDPU balance as the prize pool
                 prizePoolSpan.textContent = ethers.utils.formatUnits(currentPrizePoolWei, chdpuDecimals); 
                 numPlayersSpan.textContent = players.length;
                 currentWinnerSpan.textContent = winnerAddress === '0x0000000000000000000000000000000000000000' ? 'N/A (No winner yet or reset)' : winnerAddress;
@@ -295,10 +300,27 @@
                     playersList.appendChild(li);
                 }
 
-                // Get User CHDPU Balance
+                // Get User CHDPU Balance and Allowance
                 const balanceWei = await chdpuContract.balanceOf(userAddress);
+                const allowanceWei = await chdpuContract.allowance(userAddress, CHDPU_LOTTERY_CONTRACT_ADDRESS);
+
                 chdpuBalanceSpan.textContent = ethers.utils.formatUnits(balanceWei, chdpuDecimals);
                 entryCostSpan.textContent = ethers.utils.formatUnits(currentTicketPriceWei, chdpuDecimals);
+
+                // Enable/Disable Enter Lottery button based on balance and approval
+                if (balanceWei.lt(currentTicketPriceWei)) {
+                    enterLotteryBtn.disabled = true;
+                    setStatus("Insufficient CHDPU balance to enter lottery.", true);
+                } else if (allowanceWei.lt(currentTicketPriceWei)) {
+                    enterLotteryBtn.disabled = true;
+                    setStatus("Approve the lottery contract to spend your CHDPU.", true);
+                } else {
+                    enterLotteryBtn.disabled = false;
+                    setStatus("Wallet connected. Ready to play!");
+                }
+                
+                // Always enable approve button if connected
+                approveBtn.disabled = false;
 
                 // Check if user is owner for pickWinnerBtn
                 const contractOwner = await lotteryContract.owner();
@@ -308,11 +330,13 @@
                     pickWinnerBtn.disabled = true;
                 }
 
-                setStatus("Details updated.");
-
             } catch (error) {
                 setStatus(`Error updating UI: ${error.message}`, true);
                 console.error("UI Update Error:", error);
+                // Ensure buttons are disabled on error
+                enterLotteryBtn.disabled = true;
+                approveBtn.disabled = true;
+                pickWinnerBtn.disabled = true;
             }
         }
 
@@ -321,6 +345,11 @@
             if (typeof window.ethereum === 'undefined') {
                 setStatus("Rabby Wallet (or MetaMask) not detected. Please install it.", true);
                 connectWalletBtn.disabled = true;
+            } else {
+                // Initial state: disable buttons until connected
+                enterLotteryBtn.disabled = true;
+                approveBtn.disabled = true;
+                pickWinnerBtn.disabled = true;
             }
         });
 
@@ -342,7 +371,11 @@
 
                 if (parseInt(chainId, 16) !== TARAXA_MAINNET_CHAIN_ID) {
                     setStatus(`Please switch your wallet to Taraxa Mainnet (Chain ID ${TARAXA_MAINNET_CHAIN_ID}).`, true);
-                    return; // Stop further interaction if wrong network
+                    // Disable buttons if on wrong network
+                    enterLotteryBtn.disabled = true;
+                    approveBtn.disabled = true;
+                    pickWinnerBtn.disabled = true;
+                    return; 
                 }
 
                 signer = provider.getSigner();
@@ -377,6 +410,10 @@
             } catch (error) {
                 setStatus(`Wallet connection failed: ${error.message}`, true);
                 console.error(error);
+                // Ensure buttons are disabled on connection failure
+                enterLotteryBtn.disabled = true;
+                approveBtn.disabled = true;
+                pickWinnerBtn.disabled = true;
             }
         });
 
@@ -391,8 +428,8 @@
                 setStatus("Approving CHDPU for lottery contract...");
                 const tx = await chdpuContract.approve(CHDPU_LOTTERY_CONTRACT_ADDRESS, amountToApprove);
                 await tx.wait(); // Wait for transaction to be mined
-                setStatus("CHDPU Approved successfully! You can now enter the lottery.");
-                updateUI();
+                setStatus("CHDPU Approved successfully! Updating details...");
+                updateUI(); // Re-check balance and allowance after approval
             } catch (error) {
                 setStatus(`Approval failed: ${error.message}`, true);
                 console.error("Approval error:", error);
@@ -404,6 +441,20 @@
                 setStatus("Please connect wallet first.", true);
                 return;
             }
+            // Add a final client-side check before sending transaction
+            const currentTicketPriceWei = await lotteryContract.ticketPrice();
+            const balanceWei = await chdpuContract.balanceOf(userAddress);
+            const allowanceWei = await chdpuContract.allowance(userAddress, CHDPU_LOTTERY_CONTRACT_ADDRESS);
+
+            if (balanceWei.lt(currentTicketPriceWei)) {
+                setStatus("Cannot enter: Insufficient CHDPU balance.", true);
+                return;
+            }
+            if (allowanceWei.lt(currentTicketPriceWei)) {
+                setStatus("Cannot enter: Lottery contract not approved to spend enough CHDPU. Please approve first.", true);
+                return;
+            }
+
             try {
                 setStatus("Entering lottery...");
                 const tx = await lotteryContract.enter();
@@ -411,7 +462,7 @@
                 setStatus("Successfully entered the lottery!");
                 updateUI();
             } catch (error) {
-                setStatus(`Entering lottery failed: ${error.message}`, true);
+                setStatus(`Entering lottery failed: ${error.message}. Please ensure you have enough CHDPU and have approved the contract.`, true);
                 console.error("Enter lottery error:", error);
             }
         });
