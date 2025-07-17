@@ -310,10 +310,10 @@
                 // Enable/Disable Enter Lottery button based on balance and approval
                 if (balanceWei.lt(currentTicketPriceWei)) {
                     enterLotteryBtn.disabled = true;
-                    setStatus("Insufficient CHDPU balance to enter lottery.", true);
+                    setStatus("Insufficient CHDPU balance to enter lottery. Please acquire more CHDPU.", true);
                 } else if (allowanceWei.lt(currentTicketPriceWei)) {
                     enterLotteryBtn.disabled = true;
-                    setStatus("Approve the lottery contract to spend your CHDPU.", true);
+                    setStatus("Approve the lottery contract to spend your CHDPU. Click 'Approve CHDPU' above.", true);
                 } else {
                     enterLotteryBtn.disabled = false;
                     setStatus("Wallet connected. Ready to play!");
@@ -427,7 +427,16 @@
                 const amountToApprove = ethers.utils.parseUnits(approvalAmountInput.value, chdpuDecimals);
                 setStatus("Approving CHDPU for lottery contract...");
                 const tx = await chdpuContract.approve(CHDPU_LOTTERY_CONTRACT_ADDRESS, amountToApprove);
+                setStatus(`Approval transaction sent: ${tx.hash}. Waiting for confirmation...`);
                 await tx.wait(); // Wait for transaction to be mined
+                
+                // Add a small delay to ensure blockchain state propagates
+                await new Promise(resolve => setTimeout(resolve, 2000)); // 2-second delay
+
+                const updatedAllowanceWei = await chdpuContract.allowance(userAddress, CHDPU_LOTTERY_CONTRACT_ADDRESS);
+                const updatedAllowanceFormatted = ethers.utils.formatUnits(updatedAllowanceWei, chdpuDecimals);
+                console.log(`Allowance after approval: ${updatedAllowanceFormatted} CHDPU`);
+
                 setStatus("CHDPU Approved successfully! Updating details...");
                 updateUI(); // Re-check balance and allowance after approval
             } catch (error) {
