@@ -270,13 +270,15 @@
                 // Get Lottery Details
                 const currentLotteryId = await lotteryContract.lotteryId();
                 const currentTicketPriceWei = await lotteryContract.ticketPrice();
-                const currentPrizePoolWei = await lotteryContract.prizePool();
+                // Corrected: Use getContractCHDPUBalance instead of prizePool
+                const currentPrizePoolWei = await lotteryContract.getContractCHDPUBalance(); 
                 const players = await lotteryContract.getPlayers();
                 const winnerAddress = await lotteryContract.currentWinner();
 
                 lotteryIdSpan.textContent = currentLotteryId.toString();
                 ticketPriceSpan.textContent = ethers.utils.formatUnits(currentTicketPriceWei, chdpuDecimals);
-                prizePoolSpan.textContent = ethers.utils.formatUnits(currentPrizePoolWei, chdpuDecimals);
+                // Corrected: Display the contract's CHDPU balance as the prize pool
+                prizePoolSpan.textContent = ethers.utils.formatUnits(currentPrizePoolWei, chdpuDecimals); 
                 numPlayersSpan.textContent = players.length;
                 currentWinnerSpan.textContent = winnerAddress === '0x0000000000000000000000000000000000000000' ? 'N/A (No winner yet or reset)' : winnerAddress;
 
